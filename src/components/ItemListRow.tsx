@@ -59,7 +59,7 @@ function ItemListRow({ item, onLongPress, onPress }: Props) {
         <View style={styles.metaRow}>
           {item.condition && (
             <Text style={[styles.metaText, { color: colors.muted }]}>
-              {formatCondition(item.condition)}
+              {formatCondition(item.condition, t)}
             </Text>
           )}
           {item.rating != null && item.rating > 0 && (

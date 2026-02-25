@@ -195,7 +195,7 @@ export default function SettingsScreen() {
         <Pressable
           onPress={() => {
             posthog.capture("data_exported", { format: "json" });
-            exportAsJSON().catch(() => Alert.alert(t("exportFailed")));
+            exportAsJSON(t).catch(() => Alert.alert(t("exportFailed")));
           }}
           style={styles.exportBtn}
         >
@@ -214,7 +214,7 @@ export default function SettingsScreen() {
         <Pressable
           onPress={() => {
             posthog.capture("data_exported", { format: "csv" });
-            exportAsCSV().catch(() => Alert.alert(t("exportFailed")));
+            exportAsCSV(t).catch(() => Alert.alert(t("exportFailed")));
           }}
           style={styles.exportBtn}
         >

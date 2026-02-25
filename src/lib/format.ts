@@ -41,15 +41,20 @@ export function formatCount(count: number, singular: string, plural?: string): s
   return `${count} ${count === 1 ? singular : p}`;
 }
 
-const conditionLabels: Record<string, string> = {
-  fair: "一般",
-  good: "良好",
-  like_new: "几乎全新",
-  new: "全新",
-  poor: "较差",
+const conditionKeys: Record<string, string> = {
+  fair: "conditionFair",
+  good: "conditionGood",
+  like_new: "conditionLikeNew",
+  new: "conditionNew",
+  poor: "conditionPoor",
 };
 
-export function formatCondition(condition: string | null | undefined): string {
+export function formatCondition(
+  condition: string | null | undefined,
+  t?: (key: string) => string
+): string {
   if (!condition) return "-";
-  return conditionLabels[condition] ?? condition;
+  const key = conditionKeys[condition];
+  if (key && t) return t(key);
+  return condition;
 }

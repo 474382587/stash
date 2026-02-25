@@ -129,7 +129,7 @@ export default function AddCollectionScreen() {
         </View>
 
         <Text style={[styles.label, { color: colors.textSecondary }]}>
-          {`${t("description")}（${t("optional")}）`}
+          {`${t("description")} (${t("optional")})`}
         </Text>
         <TextInput
           multiline

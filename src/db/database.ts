@@ -538,11 +538,24 @@ export async function exportAllData(): Promise<{
 }
 
 export function dataToCSV(
-  items: (Item & { tags: Tag[] })[]
+  items: (Item & { tags: Tag[] })[],
+  t?: (key: string) => string
 ): string {
+  const label = (key: string, fallback: string) => t ? t(key) : fallback;
   const headers = [
-    "名称", "品牌", "型号", "购入价格", "当前价值", "货币",
-    "购入日期", "成色", "评分", "状态", "标签", "备注", "创建时间",
+    label("csvName", "Name"),
+    label("csvBrand", "Brand"),
+    label("csvModel", "Model"),
+    label("csvPurchasePrice", "Purchase Price"),
+    label("csvCurrentValue", "Current Value"),
+    label("csvCurrency", "Currency"),
+    label("csvPurchaseDate", "Purchase Date"),
+    label("csvCondition", "Condition"),
+    label("csvRating", "Rating"),
+    label("csvStatus", "Status"),
+    label("csvTags", "Tags"),
+    label("csvNotes", "Notes"),
+    label("csvCreatedAt", "Created At"),
   ];
   const rows = items.map((i) => [
     csvEscape(i.name),

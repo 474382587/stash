@@ -33,7 +33,7 @@ function ShareCard({ collectionName, item, photoUri, tags }: Props, ref: React.R
   }
 
   if (item.condition) {
-    details.push({ label: t("condition"), value: formatCondition(item.condition) });
+    details.push({ label: t("condition"), value: formatCondition(item.condition, t) });
   }
 
   if (item.purchase_date) {

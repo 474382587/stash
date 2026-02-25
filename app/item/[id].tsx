@@ -387,7 +387,7 @@ export default function ItemDetailScreen() {
 
       {/* Details */}
       <View style={[styles.detailsCard, { backgroundColor: colors.card }]}>
-        {renderDetail(t("condition"), formatCondition(item.condition))}
+        {renderDetail(t("condition"), formatCondition(item.condition, t))}
         {renderDetail(t("purchaseDate"), formatDate(item.purchase_date))}
         {renderDetail(t("storeName"), item.store_name ?? undefined)}
         {renderDetail(t("location"), item.purchase_location ?? undefined)}
