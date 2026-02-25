@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Stash",
+    "slug": "stash",
+    "scheme": "stash",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0E1A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jj.stash",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Access your photos to add images to your collections",
+        "NSCameraUsageDescription": "Take photos of your collection items",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0E1A"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.jj.stash",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Access your photos to add images to your collections",
+          "cameraPermission": "Take photos of your collection items"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-localization",
+      "expo-font"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "80150c57-5216-41e7-9cba-0e329f14955f"
+      }
+    }
+  }
+}
