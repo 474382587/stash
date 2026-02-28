@@ -13,7 +13,9 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import ClusteredMapView from "react-native-map-clustering";
+import { Marker } from "react-native-maps";
+import type MapView from "react-native-maps";
 
 import StatCard from "src/components/StatCard";
 import { formatMoney } from "src/lib/format";
@@ -21,12 +23,15 @@ import { fontSize, radius, spacing, useTheme } from "src/theme";
 import * as api from "src/services/api";
 import type { Collection } from "src/services/api";
 import { useCollections } from "src/store/useCollections";
+import { useSettings } from "src/store/useSettings";
 
 export default function HomeScreen() {
   const { t } = useTranslation();
   const colors = useTheme();
   const router = useRouter();
   const { collections, load } = useCollections();
+  const homeLocation = useSettings((s) => s.homeLocation);
+  const mapRef = React.useRef<MapView>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [locationItems, setLocationItems] = React.useState<
     { id: number; name: string; location_lat: number; location_lng: number }[]
@@ -59,6 +64,17 @@ export default function HomeScreen() {
   React.useEffect(() => {
     load();
   }, []);
+
+  React.useEffect(() => {
+    if (homeLocation) {
+      mapRef.current?.animateToRegion({
+        latitude: homeLocation.lat,
+        latitudeDelta: 5,
+        longitude: homeLocation.lng,
+        longitudeDelta: 5,
+      }, 500);
+    }
+  }, [homeLocation]);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -179,15 +195,32 @@ export default function HomeScreen() {
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               {t("purchaseLocationsMap")}
             </Text>
-            <MapView
+            <ClusteredMapView
+              ref={mapRef}
               initialRegion={{
-                latitude: 20,
-                longitude: 0,
-                latitudeDelta: 120,
-                longitudeDelta: 180,
+                latitude: homeLocation?.lat ?? 20,
+                longitude: homeLocation?.lng ?? 0,
+                latitudeDelta: homeLocation ? 5 : 120,
+                longitudeDelta: homeLocation ? 5 : 180,
               }}
               style={styles.map}
+              clusterColor="#6366F1"
+              clusterTextColor="#FFF"
+              radius={40}
+              minPoints={2}
             >
+              {homeLocation && (
+                <Marker
+                  coordinate={{ latitude: homeLocation.lat, longitude: homeLocation.lng }}
+                  title={homeLocation.name}
+                  pinColor="#6366F1"
+                  cluster={false}
+                >
+                  <View style={styles.homePin}>
+                    <Ionicons name="home" size={16} color="#FFF" />
+                  </View>
+                </Marker>
+              )}
               {locationItems.map((loc) => (
                 <Marker
                   key={loc.id}
@@ -198,7 +231,7 @@ export default function HomeScreen() {
                   title={loc.name}
                 />
               ))}
-            </MapView>
+            </ClusteredMapView>
           </View>
 
           {collections.length > 0 && (
@@ -305,6 +338,20 @@ const styles = StyleSheet.create({
     fontSize: fontSize.hero,
     fontWeight: "800",
   },
+  homePin: {
+    alignItems: "center",
+    backgroundColor: "#6366F1",
+    borderColor: "#FFF",
+    borderRadius: 16,
+    borderWidth: 2,
+    height: 32,
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { height: 1, width: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    width: 32,
+  },
   map: {
     borderRadius: radius.md,
     height: 200,
@@ -313,6 +360,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   mapSection: {
+    marginBottom: spacing.xl,
     marginTop: spacing.xl,
   },
   row: {

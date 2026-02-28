@@ -3,7 +3,7 @@
     "name": "Stash",
     "slug": "stash",
     "scheme": "stash",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -16,10 +16,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.jj.stash",
+      "appleTeamId": "KRRCV2VBHF",
       "buildNumber": "1",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Access your photos to add images to your collections",
         "NSCameraUsageDescription": "Take photos of your collection items",
+        "NSMicrophoneUsageDescription": "Record audio for voice input when adding items",
+        "NSPhotoLibraryUsageDescription": "Access your photos to add images to your collections",
+        "NSSpeechRecognitionUsageDescription": "Recognize speech to fill in item details by voice",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -46,7 +49,14 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-localization",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Record audio for voice input when adding items",
+          "speechRecognitionPermission": "Recognize speech to fill in item details by voice"
+        }
+      ]
     ],
     "extra": {
       "router": {},

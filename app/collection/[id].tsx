@@ -243,7 +243,7 @@ export default function CollectionDetailScreen() {
                 <Text style={[styles.metaValue, { color: colors.text }]}>
                   {collection.item_count ?? 0}
                 </Text>
-                <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>{t("items")}</Text>
+                <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>{t("itemsLabel")}</Text>
               </View>
               {(collection.total_value ?? 0) > 0 && (
                 <View style={[styles.metaChip, { backgroundColor: colors.card }]}>

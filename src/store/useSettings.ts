@@ -2,17 +2,26 @@ import { create } from "zustand";
 
 import { getDb } from "src/services/api";
 
+interface HomeLocation {
+  lat: number;
+  lng: number;
+  name: string;
+}
+
 interface SettingsState {
   currency: string;
+  homeLocation: HomeLocation | null;
   loaded: boolean;
 
   get: (key: string) => Promise<string | null>;
   load: () => Promise<void>;
   set: (key: string, value: string) => Promise<void>;
+  setHomeLocation: (location: HomeLocation | null) => Promise<void>;
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
   currency: "USD",
+  homeLocation: null,
   loaded: false,
 
   async get(key: string) {
@@ -25,8 +34,14 @@ export const useSettings = create<SettingsState>((set, get) => ({
   },
 
   async load() {
-    const currency = (await get().get("currency")) ?? "USD";
-    set({ currency, loaded: true });
+    const s = get();
+    const currency = (await s.get("currency")) ?? "USD";
+    const homeLoc = await s.get("homeLocation");
+    set({
+      currency,
+      homeLocation: homeLoc ? JSON.parse(homeLoc) : null,
+      loaded: true,
+    });
   },
 
   async set(key: string, value: string) {
@@ -38,5 +53,11 @@ export const useSettings = create<SettingsState>((set, get) => ({
     if (key === "currency") {
       set({ currency: value });
     }
+  },
+
+  async setHomeLocation(location: HomeLocation | null) {
+    const value = location ? JSON.stringify(location) : "";
+    await get().set("homeLocation", value);
+    set({ homeLocation: location });
   },
 }));

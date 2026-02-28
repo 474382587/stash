@@ -1,13 +1,12 @@
 import * as React from "react";
 
 import { Ionicons } from "@expo/vector-icons";
+import { recognizeText } from "@infinitered/react-native-mlkit-text-recognition";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePostHog } from "posthog-react-native";
 import { useTranslation } from "react-i18next";
-import i18n from "src/i18n";
-import MapView, { Marker } from "react-native-maps";
 import {
   ActionSheetIOS,
   Alert,
@@ -22,13 +21,29 @@ import {
   TextInput,
   View,
 } from "react-native";
+import MapView, { Marker } from "react-native-maps";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let SpeechModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let useSpeechEvent: (name: string, cb: (...args: any[]) => void) => void = () => {};
+try {
+  const mod = require("expo-speech-recognition");
+  SpeechModule = mod.ExpoSpeechRecognitionModule;
+  useSpeechEvent = mod.useSpeechRecognitionEvent;
+} catch {
+  // Native module not yet built — voice input will be disabled
+}
 
 import Button from "src/components/Button";
 import TagPill from "src/components/TagPill";
+import i18n from "src/i18n";
+import { parseLabel } from "src/lib/labelParser";
 import { pickFromLibrary, pickMultipleFromLibrary, takePhoto } from "src/lib/photos";
-import { fontSize, radius, spacing, useTheme } from "src/theme";
 import * as api from "src/services/api";
+import { fontSize, radius, spacing, useTheme } from "src/theme";
 import { useCollections } from "src/store/useCollections";
+import { useSettings } from "src/store/useSettings";
 import { useTags } from "src/store/useTags";
 
 const CURRENCIES = ["CAD", "CNY", "EUR", "GBP", "HKD", "JPY", "KRW", "TWD", "USD"];
@@ -66,6 +81,8 @@ export default function AddItemScreen() {
 
   const collections = useCollections((s) => s.collections);
   const loadCollections = useCollections((s) => s.load);
+  const homeLocation = useSettings((s) => s.homeLocation);
+  const savedCurrency = useSettings((s) => s.currency);
   const allTags = useTags((s) => s.tags);
 
   const [selectedCollectionId, setSelectedCollectionId] = React.useState<number | null>(paramCollectionId);
@@ -76,7 +93,7 @@ export default function AddItemScreen() {
 
   const [brand, setBrand] = React.useState("");
   const [condition, setCondition] = React.useState<string>("");
-  const [currency, setCurrency] = React.useState("USD");
+  const [currency, setCurrency] = React.useState(savedCurrency);
   const [loaded, setLoaded] = React.useState(!isEditMode);
   const [location, setLocation] = React.useState("");
   const [locationCoord, setLocationCoord] = React.useState<{ lat: number; lng: number } | null>(null);
@@ -100,8 +117,30 @@ export default function AddItemScreen() {
   const [tempLocationName, setTempLocationName] = React.useState("");
   const [searchResults, setSearchResults] = React.useState<{ display_name: string; lat: string; lon: string }[]>([]);
   const [searching, setSearching] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  const [ocrLines, setOcrLines] = React.useState<string[]>([]);
+  const [showOcrPicker, setShowOcrPicker] = React.useState(false);
+  const [showVoiceModal, setShowVoiceModal] = React.useState(false);
+  const [voiceListening, setVoiceListening] = React.useState(false);
+  const [voiceTranscript, setVoiceTranscript] = React.useState("");
+  const [voiceSegments, setVoiceSegments] = React.useState<string[]>([]);
   const mapRef = React.useRef<MapView>(null);
+  const voiceScrollRef = React.useRef<ScrollView>(null);
   const searchDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useSpeechEvent("start", () => setVoiceListening(true));
+  useSpeechEvent("end", () => {
+    setVoiceListening(false);
+    setVoiceTranscript((prev) => {
+      const trimmed = prev.trim();
+      if (trimmed) setVoiceSegments((segs) => [...segs, trimmed]);
+      return "";
+    });
+  });
+  useSpeechEvent("result", (ev: { results: { transcript: string }[] }) => {
+    setVoiceTranscript(ev.results[0]?.transcript ?? "");
+  });
+  useSpeechEvent("error", () => setVoiceListening(false));
 
   React.useEffect(() => {
     if (!isEditMode) return;
@@ -164,6 +203,141 @@ export default function AddItemScreen() {
       pickMultipleFromLibrary().then((uris) => {
         if (uris.length > 0) setPhotos((prev) => [...prev, ...uris]);
       });
+    }
+  }
+
+  async function handleScanLabel() {
+    const getImageUri = (): Promise<string | null> => {
+      return new Promise((resolve) => {
+        if (Platform.OS === "ios") {
+          ActionSheetIOS.showActionSheetWithOptions(
+            { cancelButtonIndex: 2, options: [t("takePhoto"), t("fromAlbum"), t("cancel")] },
+            async (idx) => {
+              if (idx === 0) resolve(await takePhoto());
+              else if (idx === 1) resolve(await pickFromLibrary());
+              else resolve(null);
+            }
+          );
+        } else {
+          pickFromLibrary().then(resolve);
+        }
+      });
+    };
+
+    const uri = await getImageUri();
+    if (!uri) return;
+
+    setScanning(true);
+    try {
+      const result = await recognizeText(uri);
+      const parsed = parseLabel(result.text);
+
+      if (parsed.brand && !brand) setBrand(parsed.brand);
+      if (parsed.model && !name) setName(parsed.model);
+      if (parsed.colorway && !model) setModel(parsed.colorway);
+      if (parsed.styleCode && !notes) setNotes(parsed.styleCode);
+
+      const lines = result.text
+        .split("\n")
+        .map((l: string) => l.trim())
+        .filter((l: string) => l.length >= 2);
+      if (lines.length > 0) {
+        setOcrLines(lines);
+        setShowOcrPicker(true);
+      } else {
+        Alert.alert(t("scanLabel"), t("scanNoResults"));
+      }
+
+      posthog.capture("label_scanned", {
+        detected_brand: parsed.brand,
+        has_model: !!parsed.model,
+        has_style_code: !!parsed.styleCode,
+      });
+    } catch {
+      Alert.alert(t("error"), t("scanFailed"));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function getVoiceLang() {
+    return i18n.language === "zh" ? "zh-CN"
+      : i18n.language === "zh-Hant" ? "zh-TW"
+      : i18n.language === "ko" ? "ko-KR"
+      : i18n.language === "ja" ? "ja-JP"
+      : "en-US";
+  }
+
+  function startVoiceRecognition() {
+    SpeechModule?.start({
+      addsPunctuation: true,
+      continuous: true,
+      interimResults: true,
+      lang: getVoiceLang(),
+    });
+  }
+
+  async function handleVoiceInput() {
+    if (!SpeechModule) {
+      Alert.alert(t("error"), t("voiceNeedsBuild"));
+      return;
+    }
+    const { granted } = await SpeechModule.requestPermissionsAsync();
+    if (!granted) {
+      Alert.alert(t("error"), t("voicePermissionDenied"));
+      return;
+    }
+    setVoiceTranscript("");
+    setVoiceSegments([]);
+    setShowVoiceModal(true);
+  }
+
+  function handleVoiceStop() {
+    SpeechModule?.stop();
+  }
+
+  function removeVoiceSegment(index: number) {
+    setVoiceSegments((segs) => segs.filter((_, i) => i !== index));
+  }
+
+  function handleVoiceDone() {
+    SpeechModule?.stop();
+    setShowVoiceModal(false);
+    const current = voiceTranscript.trim();
+    const allSegments = current ? [...voiceSegments, current] : [...voiceSegments];
+    setVoiceTranscript("");
+    setVoiceSegments([]);
+    if (allSegments.length > 0) {
+      setOcrLines(allSegments);
+      setShowOcrPicker(true);
+    }
+    posthog.capture("voice_input_used", { lang: i18n.language, segments: allSegments.length });
+  }
+
+  function handleVoiceCancel() {
+    SpeechModule?.abort();
+    setShowVoiceModal(false);
+    setVoiceTranscript("");
+    setVoiceSegments([]);
+  }
+
+  function handleOcrLineSelect(line: string) {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          cancelButtonIndex: 5,
+          message: line,
+          options: [t("name"), t("brand"), t("model"), t("notes"), t("skip"), t("cancel")],
+        },
+        (idx) => {
+          if (idx === 0) setName((prev) => prev ? `${prev} ${line}` : line);
+          else if (idx === 1) setBrand((prev) => prev ? `${prev} ${line}` : line);
+          else if (idx === 2) setModel((prev) => prev ? `${prev} ${line}` : line);
+          else if (idx === 3) setNotes((prev) => prev ? `${prev} ${line}` : line);
+        }
+      );
+    } else {
+      setName((prev) => prev ? `${prev} ${line}` : line);
     }
   }
 
@@ -450,6 +624,27 @@ export default function AddItemScreen() {
           ))}
         </ScrollView>
 
+        {/* Scan Label & Voice Input */}
+        <View style={styles.quickInputRow}>
+          <Pressable
+            disabled={scanning}
+            onPress={handleScanLabel}
+            style={[styles.scanBtn, styles.quickInputBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
+          >
+            <Ionicons name="scan-outline" size={20} color={colors.primary} />
+            <Text style={[styles.scanBtnText, { color: colors.primary }]}>
+              {scanning ? t("scanning") : t("scanLabel")}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={handleVoiceInput}
+            style={[styles.scanBtn, styles.quickInputBtn, { backgroundColor: colors.card, borderColor: colors.primary }]}
+          >
+            <Ionicons name="mic-outline" size={20} color={colors.primary} />
+            <Text style={[styles.scanBtnText, { color: colors.primary }]}>{t("voiceInput")}</Text>
+          </Pressable>
+        </View>
+
         {/* Name */}
         <Text style={[styles.label, { color: colors.textSecondary }]}>{t("name")} *</Text>
         <TextInput
@@ -680,9 +875,9 @@ export default function AddItemScreen() {
             <MapView
               ref={mapRef}
               initialRegion={{
-                latitude: tempMapCoord?.latitude ?? 35.68,
+                latitude: tempMapCoord?.latitude ?? homeLocation?.lat ?? 37.78,
                 latitudeDelta: 0.05,
-                longitude: tempMapCoord?.longitude ?? 139.69,
+                longitude: tempMapCoord?.longitude ?? homeLocation?.lng ?? -122.42,
                 longitudeDelta: 0.05,
               }}
               onPress={(e) => {
@@ -813,6 +1008,93 @@ export default function AddItemScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── OCR Result Picker Modal ── */}
+      <Modal animationType="slide" transparent visible={showOcrPicker} onRequestClose={() => setShowOcrPicker(false)}>
+        <Pressable onPress={() => setShowOcrPicker(false)} style={styles.modalOverlay}>
+          <View style={[styles.dateModalContent, { backgroundColor: colors.card, maxHeight: "70%" }]}>
+            <View style={styles.dateModalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>{t("ocrPickerTitle")}</Text>
+              <Pressable onPress={() => setShowOcrPicker(false)}>
+                <Ionicons name="close" size={24} color={colors.muted} />
+              </Pressable>
+            </View>
+            <Text style={{ color: colors.textSecondary, fontSize: fontSize.sm, marginBottom: spacing.md }}>
+              {t("ocrPickerHint")}
+            </Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {ocrLines.map((line, idx) => (
+                <Pressable
+                  key={`${idx}-${line}`}
+                  onPress={() => handleOcrLineSelect(line)}
+                  style={[
+                    styles.ocrLineItem,
+                    { borderBottomColor: colors.border },
+                    idx < ocrLines.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                >
+                  <Text style={[styles.ocrLineText, { color: colors.text }]}>{line}</Text>
+                  <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Voice Input Modal ── */}
+      <Modal animationType="fade" transparent visible={showVoiceModal} onRequestClose={handleVoiceCancel}>
+        <View style={styles.voiceOverlay}>
+          <View style={[styles.voiceModal, { backgroundColor: colors.card }]}>
+            <View style={styles.voiceHeader}>
+              <Pressable onPress={handleVoiceCancel}>
+                <Text style={{ color: colors.muted, fontSize: fontSize.md }}>{t("cancel")}</Text>
+              </Pressable>
+              <Text style={[styles.voiceTitle, { color: colors.text }]}>{t("voiceInput")}</Text>
+              <Pressable onPress={handleVoiceDone} disabled={voiceSegments.length === 0 && !voiceTranscript}>
+                <Text style={{ color: (voiceSegments.length > 0 || voiceTranscript) ? colors.primary : colors.muted, fontSize: fontSize.md, fontWeight: "600" }}>{t("done")}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.voiceTranscriptArea}>
+              <ScrollView
+                style={{ flex: 1 }}
+                onContentSizeChange={() => { voiceScrollRef.current?.scrollToEnd({ animated: true }); }}
+                ref={voiceScrollRef}
+              >
+                {voiceSegments.length === 0 && !voiceTranscript && (
+                  <Text style={[styles.voiceTranscriptText, { color: colors.muted }]}>{t("voiceHint")}</Text>
+                )}
+                {voiceSegments.map((seg, i) => (
+                  <View key={i} style={[styles.voiceSegmentChip, { backgroundColor: colors.primary + "18" }]}>
+                    <Text style={[styles.voiceSegmentText, { color: colors.text }]}>{seg}</Text>
+                    <Pressable onPress={() => removeVoiceSegment(i)} hitSlop={8}>
+                      <Ionicons name="close-circle" size={18} color={colors.muted} />
+                    </Pressable>
+                  </View>
+                ))}
+                {voiceTranscript ? (
+                  <View style={[styles.voiceSegmentChip, { backgroundColor: "#EF4444" + "18", borderColor: "#EF4444", borderWidth: 1 }]}>
+                    <Text style={[styles.voiceSegmentText, { color: colors.text }]}>{voiceTranscript}</Text>
+                    <Ionicons name="radio-button-on" size={14} color="#EF4444" />
+                  </View>
+                ) : null}
+              </ScrollView>
+            </View>
+
+            <Pressable
+              onPressIn={startVoiceRecognition}
+              onPressOut={handleVoiceStop}
+              style={[styles.voiceMicBtn, { backgroundColor: voiceListening ? "#EF4444" : colors.primary }]}
+            >
+              <Ionicons name="mic" size={36} color="#FFF" />
+            </Pressable>
+            <Text style={[styles.voiceStatusText, { color: colors.muted }]}>
+              {voiceListening ? t("voiceListening") : t("voiceHoldToTalk")}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Currency Modal ── */}
       <Modal animationType="slide" transparent visible={showCurrencyModal} onRequestClose={() => setShowCurrencyModal(false)}>
         <Pressable onPress={() => setShowCurrencyModal(false)} style={styles.modalOverlay}>
@@ -902,6 +1184,12 @@ const styles = StyleSheet.create({
   receiptBtnText: { fontSize: fontSize.sm, fontWeight: "600" },
   receiptThumb: { borderRadius: radius.md, height: 120, marginBottom: spacing.lg, width: "100%" },
   receiptWrap: { marginBottom: spacing.lg, position: "relative" },
+  scanBtn: {
+    alignItems: "center", borderRadius: radius.md, borderWidth: 1,
+    flexDirection: "row", gap: spacing.sm, justifyContent: "center",
+    marginBottom: spacing.lg, paddingVertical: spacing.md,
+  },
+  scanBtnText: { fontSize: fontSize.md, fontWeight: "600" },
   saveBtn: { marginBottom: 40, marginTop: spacing.lg },
   scroll: { padding: spacing.lg },
   searchBarInput: { flex: 1, fontSize: fontSize.md, marginLeft: spacing.sm, paddingVertical: spacing.sm },
@@ -909,7 +1197,21 @@ const styles = StyleSheet.create({
   searchResultItem: { alignItems: "flex-start", flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   searchResultText: { flex: 1, fontSize: fontSize.sm, lineHeight: 20 },
   searchResultsList: { borderRadius: radius.md, marginHorizontal: spacing.lg, marginTop: spacing.xs, maxHeight: 300, shadowColor: "#000", shadowOffset: { height: 2, width: 0 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
+  ocrLineItem: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", paddingHorizontal: spacing.sm, paddingVertical: spacing.md },
+  ocrLineText: { flex: 1, fontSize: fontSize.md, marginRight: spacing.sm },
+  quickInputBtn: { flex: 1, marginBottom: 0 },
+  quickInputRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.lg },
   textArea: { height: 100, textAlignVertical: "top" },
   topBar: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.lg, paddingTop: spacing.md },
   twoCol: { flexDirection: "row", gap: spacing.md },
+  voiceHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.lg, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
+  voiceMicBtn: { alignItems: "center", alignSelf: "center", borderRadius: 40, height: 80, justifyContent: "center", marginBottom: spacing.md, width: 80 },
+  voiceModal: { borderRadius: radius.xl, maxHeight: "80%", width: "90%" },
+  voiceOverlay: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)", flex: 1, justifyContent: "center" },
+  voiceStatusText: { fontSize: fontSize.sm, marginBottom: spacing.lg, textAlign: "center" },
+  voiceTitle: { fontSize: fontSize.lg, fontWeight: "700" },
+  voiceSegmentChip: { alignItems: "center", borderRadius: radius.md, flexDirection: "row", gap: spacing.sm, marginBottom: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  voiceSegmentText: { flex: 1, fontSize: fontSize.md },
+  voiceTranscriptArea: { marginBottom: spacing.lg, marginHorizontal: spacing.lg, maxHeight: 320, minHeight: 120 },
+  voiceTranscriptText: { fontSize: fontSize.md, lineHeight: 24 },
 });
